@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title></title>
+	
+	<script type="text/javascript" scr="main.js"></script>
+</head>
+<body>
+
+<script>
+
+window.onload = function(){
+	
+
+
+	window.c = new ZChart({
+		el: 'chart2',
+
+		radius: 5,
+		pointColor: '#fff',
+		pointStrokeWidth: 3,
+		pointStrokeColor: '#777',
+
+		lineWidth: 3,
+		lineColor: 'red',
+		lineStokeWidth: 1,
+		lineStokeColor: '#333'
+
+	});
+
+	window.cData = [
+		[100,50,230,300,200,100,150,30,200,170,50,100],
+		[200,150,30,240,250,50,250,70,250,370,150,70],
+		[150,200,100,200,100,200,100,200,100,200,30,350]
+	]
+	c.loadData(cData[0]);	
+	c.draw();
+
+}
+
+
+
+function ZChart(options) {
+	if( typeof options === 'string') {
+		this.canvasId = options;
+	} else {
+		this.canvasId = options.el || '';	
+	}
+	
+	if( this.canvasId === '') {
+		throw new Exception('Invalid invokation')
+	}
+
+	this.width = options.width || 800;
+	this.height = options.height || 600;
+	this.t_const = options.t || 0.4;
+
+	this.lineColor = options.lineColor || '#338';
+	this.lineWidth = options.lineWidth || 5;
+	this.lineStokeWidth = options.lineStokeWidth || 0;
+	this.lineStokeColor = options.lineStokeColor || '#000';
+
+	this.pointStyle = {};
+	this.pointStyle.color = options.pointColor || '#fff';
+	this.pointStyle.strokeColor = options.pointStrokeColor || '#444';
+	this.pointStyle.strokeWidth = options.pointStrokeWidth || 3;
+
+	this.radius = options.radius || 5;
+
+
+	var c = document.getElementById(this.canvasId);
+	c.style.border = '1px solid #777'
+	c.width = this.width;
+	c.height = this.height;
+	this.cxt = c.getContext('2d');
+	window.cnv = this.cxt;
+	this.points = [];
+}
+
+
+ZChart.prototype.loadData = function(data) {
+	this.points = [];
+	var availableWidth = this.width - 40;
+	var x_step = Math.round(availableWidth / (data.length-1) )
+	var x = 20;
+	for(var i = 0; i < data.length; i++) {
+		this.points.push(new ZChart.Point(
+			i, data[i], 
+			x + i * x_step, 420 - data[i], 
+			this.radius, 
+			this.pointStyle
+		));	
+	}
+
+	this.calcPoints();
+}
+
+
+ZChart.prototype.drawData = function(data) {
+	this.loadData(data);
+	this.draw();	
+}
+
+ZChart.prototype.animate = function(data) {
+	var p;
+	var diffs = []
+	for (var i = 0; i < this.points.length; i++) {
+		p = this.points[i];
+		p.animateGoal = data[i];
+		p.diff = Math.abs(data[i] - p.value);
+		diffs.push(p.diff);
+	}
+
+	var max = Math.max.apply(this,diffs);
+	var min = Math.min.apply(this,diffs);
+
+	var maxStep = 1;
+	if( max != min ) {
+		maxStep = Math.ceil(max / min);
+	} 
+
+	for (var i = 0; i < this.points.length; i++) {
+		p = this.points[i];
+		p.step = (maxStep != 1 ) ? maxStep * p.diff / max : 1;
+	}
+
+	//Diff поувзает сколько нужно вычести из рошлой даты
+	//чтбы получить заднное новое значение
+	this.animateStep();	
+}
+
+ZChart.prototype.animateStep = function() {
+	var ready = 0;
+	var p,diff,step;
+	for(var i = 0 ; i < this.points.length; i++) { 
+		p = this.points[i];
+		step = p.step;
+
+		if( p.animateGoal > p.value ) {
+			diff = p.animateGoal - p.value;
+			if(diff > step) {
+				p.setValue(p.value + step);
+			} else {
+				p.setValue(p.value + diff);
+			}
+		} 
+		else if( p.value > p.animateGoal ) {
+			diff = p.value - p.animateGoal; 
+			if(diff > step) {
+				p.setValue(p.value - step);
+			} else {
+				p.setValue(p.value-diff);
+			}	
+		} else {
+			ready++;	
+		}
+
+	}
+
+	this.calcPoints();
+	this.draw();
+
+	if( ready != this.points.length) {
+		var self = this;
+		setTimeout(function() {
+			self.animateStep();
+		},1000/60)
+	}
+}
+
+ZChart.prototype.calcPoints = function() {
+	var i,x0,x1,x2;
+	for(var i = 0 ; i < this.points.length; i++) {
+		this.points[i].controlPoints = [];
+		x0 = this.points[i-1];
+		x1 = this.points[i];
+		x2 = this.points[i+1];
+
+		if( typeof x0 === 'undefined' || typeof x2 === 'undefined' ) {
+			continue;
+		}
+		
+		var pts = ZChart.getControlPoints(
+			x0.x, x0.y, x1.x, x1.y, 
+			x2.x, x2.y, this.t_const
+		);
+		this.points[i].controlPoints.push(
+			{x:pts[0], y:pts[1]},
+			{x:pts[2], y:pts[3]}
+		);
+	}
+}
+
+ZChart.prototype.draw = function() {
+	var cxt = this.cxt;
+	cxt.clearRect(0,0,this.width,this.height);
+	cxt.save();
+	
+	cxt.beginPath();
+
+	var pts = this.points;
+
+	for (var i = 0; i< pts.length; i++)
+	{
+		if (i == 0)
+		{
+			cxt.moveTo(pts[i].x, pts[i].y);
+		}
+		else if (i == 1)
+		{
+			cxt.quadraticCurveTo( 
+				pts[i].controlPoints[0].x,
+				pts[i].controlPoints[0].y,
+				pts[i].x,
+				pts[i].y
+			)
+		} else if(i == pts.length - 1)
+		{
+			cxt.quadraticCurveTo( 
+				pts[i-1].controlPoints[1].x,
+				pts[i-1].controlPoints[1].y,
+				pts[i].x,
+				pts[i].y
+			)
+		}
+		else
+		{
+			cxt.bezierCurveTo( 
+				pts[i-1].controlPoints[1].x,
+				pts[i-1].controlPoints[1].y,
+				pts[i].controlPoints[0].x,
+				pts[i].controlPoints[0].y,
+				pts[i].x,
+				pts[i].y
+			)
+
+		}	
+	}
+
+	cxt.lineCap = 'round';
+	if( this.lineStokeWidth ) {
+		cxt.lineWidth = this.lineStokeWidth * 2 + this.lineWidth;
+		cxt.strokeStyle = this.lineStokeColor;
+		cxt.stroke();
+	}
+
+	cxt.lineWidth = this.lineWidth;
+	cxt.strokeStyle = this.lineColor;
+	cxt.stroke();
+
+	cxt.restore();
+
+	for(var i = 0; i < pts.length; i++){
+		pts[i].draw(cxt);
+	}
+}
+
+
+ZChart.getControlPoints = function(x0, y0, x1, y1, x2, y2, t) {
+    var d01=Math.sqrt(Math.pow(x1-x0,2)+Math.pow(y1-y0,2));
+    var d12=Math.sqrt(Math.pow(x2-x1,2)+Math.pow(y2-y1,2));
+    var fa=t*d01/(d01+d12);   // scaling factor for triangle Ta
+    var fb=t*d12/(d01+d12);   // ditto for Tb, simplifies to fb=t-fa
+    var p1x=x1-fa*(x2-x0);    // x2-x0 is the width of triangle T
+    var p1y=y1-fa*(y2-y0);    // y2-y0 is the height of T
+    var p2x=x1+fb*(x2-x0);
+    var p2y=y1+fb*(y2-y0);  
+    return [p1x,p1y,p2x,p2y];
+}
+
+ZChart.rad = function(angle) {
+	var radians = (Math.PI / 180) * (angle - 90);
+	return radians;
+};
+
+
+ZChart.Point = function (axisX, axisY, x,y,r, pointStyle){
+	this.num = axisX;
+	this.value = axisY;
+	this.x = x;
+	this.y = y;
+	this.radius = r;
+	this.strokeWidth = pointStyle.strokeWidth || 1;	
+	this.strokeColor = pointStyle.strokeColor || '#000000';	
+	this.fillColor = pointStyle.color || '#ffffff';		
+}
+
+ZChart.Point.prototype.setValue = function(value) {
+	this.value = value;
+	this.y = 420 - value;
+}
+
+ZChart.Point.prototype.draw = function(cxt) {
+	cxt.save();
+	cxt.beginPath();
+
+	cxt.arc(this.x, this.y, this.radius,  ZChart.rad(0) , ZChart.rad(360), false );
+	
+	cxt.strokeStyle = this.strokeColor;
+	cxt.lineWidth = this.strokeWidth;
+	cxt.stroke();
+	
+	cxt.fillStyle = this.fillColor;
+	cxt.fill();
+	 
+	cxt.closePath();
+	cxt.restore();
+}
+
+</script>
+
+<canvas id="chart"></canvas>
+<canvas id="chart2"></canvas>
+
+</body>
+</html>
